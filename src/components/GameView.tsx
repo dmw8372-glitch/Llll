@@ -50,7 +50,7 @@ export const GameView: React.FC<GameViewProps> = ({
   useEffect(() => {
     if (chatMessages.length > lastChatCountRef.current) {
       const latest = chatMessages[chatMessages.length - 1];
-      if (latest && latest.senderId !== currentPlayerId) {
+      if (latest && latest.text) {
         setLatestChatToast({
           id: latest.id,
           sender: latest.senderName,
@@ -464,28 +464,26 @@ export const GameView: React.FC<GameViewProps> = ({
             </span>
           </div>
 
-          {/* Small In-Game Chat Notification Toast (Directly under Room Code, truncated, 5s auto-dismiss) */}
+          {/* Enlarged In-Game Chat Notification Toast (Directly under Room Code, message text only) */}
           <AnimatePresence>
             {latestChatToast && (
               <motion.div
                 key={latestChatToast.id}
-                initial={{ opacity: 0, y: -4, scale: 0.9 }}
+                initial={{ opacity: 0, y: -6, scale: 0.92 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.9 }}
+                exit={{ opacity: 0, y: -6, scale: 0.92 }}
                 transition={{ duration: 0.2 }}
-                className="absolute top-full left-0 mt-2 z-50 flex items-center gap-1.5 bg-[#1e2022]/95 text-white text-[11px] px-2.5 py-1.5 rounded-xl shadow-lg border border-slate-700/80 backdrop-blur-xs max-w-[210px] sm:max-w-[280px]"
+                className="absolute top-full left-0 mt-2 z-50 flex items-center gap-2.5 bg-slate-900/95 text-white text-xs sm:text-sm px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl shadow-xl border border-slate-700/80 backdrop-blur-md max-w-[280px] sm:max-w-[380px]"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 animate-ping" />
-                <span className="font-extrabold text-amber-300 shrink-0 max-w-[60px] sm:max-w-[70px] truncate">
-                  {latestChatToast.sender}:
-                </span>
-                <span className="truncate text-slate-100 font-medium flex-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-ping" />
+                <span className="truncate text-white font-bold flex-1 tracking-tight">
                   {latestChatToast.text}
                 </span>
                 <button
                   type="button"
                   onClick={() => setLatestChatToast(null)}
-                  className="text-slate-400 hover:text-white p-0.5 ml-0.5 shrink-0 cursor-pointer text-[10px]"
+                  className="text-slate-400 hover:text-white p-1 ml-1 shrink-0 cursor-pointer text-xs rounded-lg hover:bg-white/10 transition-colors"
+                  title="닫기"
                 >
                   ✕
                 </button>
