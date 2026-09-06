@@ -95,16 +95,45 @@ function findRoom(roomId: string): ServerGameRoom | undefined {
   return undefined;
 }
 
-// Clean up stale rooms (older than 2 hours without update)
+// Clean up stale & empty rooms swiftly (runs every 5 seconds)
 setInterval(() => {
   const now = Date.now();
+  let changed = false;
+
   for (const [id, room] of activeRoomsMap.entries()) {
-    if (now - (room.lastUpdated || room.createdAt) > 2 * 60 * 60 * 1000) {
+    const remainingHumans = (room.currentPlayers || []).filter((p) => !p.id.startsWith('bot_'));
+    const sseClientsCount = roomSseClientsMap.get(id)?.size ?? 0;
+    const timeSinceActivity = now - (room.lastUpdated || room.createdAt || now);
+
+    // 1. 사람이 0명이거나 봇만 남아있는 빈 방 -> 즉시 삭제!
+    if (!room.currentPlayers || room.currentPlayers.length === 0 || remainingHumans.length === 0) {
       activeRoomsMap.delete(id);
-      broadcastToLobby('ROOMS_UPDATED', { rooms: getPublicRoomsList() });
+      roomSseClientsMap.delete(id);
+      changed = true;
+      continue;
+    }
+
+    // 2. 활성 SSE 연결이 0명이고 마지막 하트비트/활동 후 20초 이상 지난 방 -> 유령 방 즉시 삭제!
+    if (sseClientsCount === 0 && timeSinceActivity > 20000) {
+      activeRoomsMap.delete(id);
+      roomSseClientsMap.delete(id);
+      changed = true;
+      continue;
+    }
+
+    // 3. 아무 통신/하트비트 없이 45초 이상 방치된 방 -> 즉시 삭제!
+    if (timeSinceActivity > 45000) {
+      activeRoomsMap.delete(id);
+      roomSseClientsMap.delete(id);
+      changed = true;
+      continue;
     }
   }
-}, 60000);
+
+  if (changed) {
+    broadcastToLobby('ROOMS_UPDATED', { rooms: getPublicRoomsList() });
+  }
+}, 5000);
 
 function getPublicRoomsList(): ServerGameRoom[] {
   return Array.from(activeRoomsMap.values()).filter(
@@ -265,19 +294,18 @@ app.get('/api/rooms/:id/stream', (req, res) => {
       roomSseClientsMap.delete(roomId);
     }
 
-    // If a specific player disconnected from SSE, do NOT eagerly delete room in 10s.
-    // Wait for at least 2 minutes (120,000ms) of total inactivity before cleaning up.
+    // If a player disconnected from SSE and no clients reconnect within 20s of inactivity, clean up swiftly!
     if (playerId) {
       setTimeout(() => {
         const checkRoom = findRoom(roomId);
         if (checkRoom) {
           const currentClients = roomSseClientsMap.get(roomId)?.size ?? 0;
           const timeSinceActivity = Date.now() - (checkRoom.lastUpdated || checkRoom.createdAt);
-          if (currentClients === 0 && timeSinceActivity > 120000) {
+          if (currentClients === 0 && timeSinceActivity > 20000) {
             handlePlayerLeave(roomId, playerId, true);
           }
         }
-      }, 120000);
+      }, 20000);
     }
   });
 });

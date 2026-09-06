@@ -307,20 +307,26 @@ export function App() {
         }
       });
 
-      // 4. Merge all sources safely
+      // 4. Merge all sources safely, strictly filtering out empty rooms with no human players
       setPublicRooms((prev) => {
         const map = new Map<string, GameRoom>();
+        const isValidRoom = (r: GameRoom) => {
+          if (!r || !r.id || r.status === 'FINISHED') return false;
+          const hasHumans = Array.isArray(r.currentPlayers) && r.currentPlayers.some((p) => !p.id.startsWith('bot_'));
+          return hasHumans;
+        };
+
         // Keep active existing rooms
         prev.forEach((r) => {
-          if (r && r.id && r.status !== 'FINISHED') map.set(r.id, r);
+          if (isValidRoom(r)) map.set(r.id, r);
         });
         // Add server rooms
         serverRooms.forEach((r) => {
-          if (r && r.id && r.status !== 'FINISHED') map.set(r.id, r);
+          if (isValidRoom(r)) map.set(r.id, r);
         });
         // Add presence rooms (highest fidelity for live host sessions)
         presenceRooms.forEach((r) => {
-          if (r && r.id && r.status !== 'FINISHED') map.set(r.id, r);
+          if (isValidRoom(r)) map.set(r.id, r);
         });
 
         return Array.from(map.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
