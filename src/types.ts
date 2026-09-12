@@ -1,4 +1,15 @@
 export type GameState = 'WAITING' | 'PLAYING' | 'FINISHED';
+export type GameMode = 'NORMAL' | 'RANKED';
+
+export type TierId =
+  | 'BRONZE'
+  | 'SILVER'
+  | 'GOLD'
+  | 'PLATINUM'
+  | 'DIAMOND'
+  | 'CROWN'
+  | 'ACE'
+  | 'CONQUEROR';
 
 export interface Player {
   id: string;
@@ -14,6 +25,8 @@ export interface Player {
   eliminatedReason?: string;
   turnOrder?: number;
   isBot?: boolean;
+  tier?: TierId;
+  rankPoints?: number;
 }
 
 export interface ChatMessage {
@@ -35,6 +48,8 @@ export interface GameRoom {
   maxPlayers: number;
   currentPlayers: Player[];
   status: GameState;
+  mode?: GameMode; // 'NORMAL' | 'RANKED'
+  targetTier?: TierId;
   currentTurnIndex: number;
   turnDuration: number; // current turn countdown limit
   totalRounds: number; // 3 or 5 rounds (default 3)
@@ -110,6 +125,8 @@ export interface DictionaryWord {
 
 export interface UserStats {
   id?: string;
+  email?: string;
+  photoURL?: string;
   nickname: string;
   avatarColor: string;
   level: number;
@@ -122,6 +139,26 @@ export interface UserStats {
   currentStreak: number;
   maxStreak: number;
   wordsHistory: { word: string; count: number; lastUsed: number }[];
+  // Ranked Match stats
+  rankPoints: number; // RP (starts at 0 in Bronze)
+  tier: TierId; // 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM' | 'DIAMOND' | 'CROWN' | 'ACE' | 'CONQUEROR'
+  rankedGames: number;
+  rankedWins: number;
+  rankedLosses: number;
+}
+
+export interface RankLeaderboardEntry {
+  rank: number;
+  userId: string;
+  nickname: string;
+  avatarColor: string;
+  photoURL?: string;
+  tier: TierId;
+  rankPoints: number;
+  rankedGames: number;
+  rankedWins: number;
+  winRate: number;
+  isCurrentUser?: boolean;
 }
 
 export interface PublicRoomSummary {

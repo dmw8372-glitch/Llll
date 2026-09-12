@@ -1,17 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, HelpCircle, Bell, Settings, Edit2, Check, X, Shuffle, User } from 'lucide-react';
+import { Home, Settings, Edit2, Check, X, Shuffle, User, LogIn } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { User as FirebaseUser } from 'firebase/auth';
 import { UserStats } from '../types';
 import { sounds } from '../lib/soundEffects';
+import { TierBadge } from './TierBadge';
+import { TierGuideModal } from './TierGuideModal';
 
 interface HeaderProps {
   currentTab: string;
   onSelectTab: (tab: string) => void;
   userStats: UserStats;
+  currentUser?: FirebaseUser | null;
+  onOpenLogin: () => void;
   onUpdateUserStats?: (updated: Partial<UserStats>) => void;
   onOpenNotices: () => void;
   onOpenRules: () => void;
   onOpenLegalDoc?: (type: 'terms' | 'privacy' | 'stdict_license') => void;
+  onOpenRankings?: () => void;
 }
 
 const RANDOM_ADJECTIVES = [
@@ -30,15 +36,19 @@ export const Header: React.FC<HeaderProps> = ({
   currentTab,
   onSelectTab,
   userStats,
+  currentUser,
+  onOpenLogin,
   onUpdateUserStats,
   onOpenNotices,
   onOpenRules,
+  onOpenRankings,
 }) => {
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
   // Quick Nickname Edit Modal/Popover State
   const [isEditNicknameOpen, setIsEditNicknameOpen] = useState(false);
+  const [isTierGuideOpen, setIsTierGuideOpen] = useState(false);
   const [newNickname, setNewNickname] = useState(userStats.nickname);
   const [nicknameError, setNicknameError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -145,6 +155,23 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Quick Nickname Pill + Action Buttons (홈, 공지, 규칙, 설정) */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* PUBG Tier Badge Quick Button - Gray Theme */}
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => {
+              sounds.playPop();
+              setIsTierGuideOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition-all cursor-pointer shadow-2xs group"
+            title="브론즈부터 정복자까지 티어 표식 문양 도감 보기"
+          >
+            <TierBadge tier={userStats.tier || 'BRONZE'} size="sm" showLabel={false} />
+            <span className="font-extrabold text-[11px] sm:text-xs text-slate-700 font-mono">
+              {userStats.rankPoints || 0}RP
+            </span>
+          </motion.button>
+
           {/* Top-Right Nickname Badge with Quick Edit Button */}
           <div className="relative">
             <motion.button
@@ -157,10 +184,22 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 transition-all cursor-pointer shadow-2xs group"
               title="클릭하여 닉네임 바로 변경하기"
             >
-              <div className="w-5 h-5 rounded-full bg-black text-white flex items-center justify-center text-[10px] font-black shrink-0">
-                <User className="w-3 h-3 text-white" />
+              <div className="relative w-5 h-5 rounded-full overflow-hidden bg-black text-white flex items-center justify-center text-[10px] font-black shrink-0">
+                {currentUser?.photoURL ? (
+                  <img
+                    src={currentUser.photoURL}
+                    alt="avatar"
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <User className="w-3 h-3 text-white" />
+                )}
+                {currentUser && (
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-white" />
+                )}
               </div>
-              <span className="font-extrabold text-xs sm:text-sm text-black max-w-[90px] sm:max-w-[130px] truncate">
+              <span className="font-extrabold text-xs sm:text-sm text-black max-w-[85px] sm:max-w-[120px] truncate">
                 {userStats.nickname}
               </span>
               <Edit2 className="w-3 h-3 text-slate-400 group-hover:text-black transition-colors shrink-0" />
@@ -184,6 +223,36 @@ export const Header: React.FC<HeaderProps> = ({
                       className="text-slate-400 hover:text-black p-1 rounded-lg cursor-pointer"
                     >
                       <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Account / Auto-login status bar */}
+                  <div className="mb-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      {currentUser ? (
+                        <div className="text-[11px] text-emerald-800 font-bold flex items-center gap-1.5 truncate">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                          <span className="truncate">자동로그인 유지 중</span>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-slate-600 font-semibold truncate">
+                          게스트 (비로그인 상태)
+                        </div>
+                      )}
+                      <div className="text-[10px] text-slate-400 truncate">
+                        {currentUser?.email || '로그인 시 전적 영구 보관'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        sounds.playPop();
+                        setIsEditNicknameOpen(false);
+                        onOpenLogin();
+                      }}
+                      className="px-2 py-1 rounded-lg bg-black hover:bg-slate-800 text-white text-[10px] font-black shrink-0 cursor-pointer transition-colors"
+                    >
+                      {currentUser ? '계정 관리' : '로그인'}
                     </button>
                   </div>
 
@@ -253,6 +322,33 @@ export const Header: React.FC<HeaderProps> = ({
             </AnimatePresence>
           </div>
 
+          {/* Login / User Status Button */}
+          {currentUser ? (
+            <button
+              onClick={() => {
+                sounds.playPop();
+                onOpenLogin();
+              }}
+              className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              title="자동 로그인 중 - 계정 관리"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span className="hidden sm:inline">로그인됨</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                sounds.playPop();
+                onOpenLogin();
+              }}
+              className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-slate-900 bg-white hover:bg-slate-50 border-2 border-slate-300 text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs group"
+              title="Google 계정으로 로그인 (자동 로그인)"
+            >
+              <LogIn className="w-3.5 h-3.5 text-slate-700 group-hover:text-black" />
+              <span className="hidden sm:inline">로그인</span>
+            </button>
+          )}
+
           {/* Home Button (Shown when not on HOME screen) */}
           {currentTab !== 'HOME' && (
             <button
@@ -267,32 +363,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden sm:inline">홈</span>
             </button>
           )}
-
-          {/* Notice Button (Black & White) */}
-          <button
-            onClick={() => {
-              sounds.playPop();
-              onOpenNotices();
-            }}
-            className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-black bg-white hover:bg-slate-100 border border-slate-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-            title="공지사항"
-          >
-            <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-black" />
-            <span className="hidden sm:inline">공지</span>
-          </button>
-
-          {/* Rules/Tutorial Button (Black & White) */}
-          <button
-            onClick={() => {
-              sounds.playPop();
-              onOpenRules();
-            }}
-            className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-black bg-white hover:bg-slate-100 border border-slate-300 text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-            title="게임 규칙"
-          >
-            <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-black" />
-            <span className="hidden sm:inline">규칙</span>
-          </button>
 
           {/* Settings Button */}
           <button
@@ -312,6 +382,14 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Tier Guide Modal (Bronze to Conqueror all emblems) */}
+      <TierGuideModal
+        isOpen={isTierGuideOpen}
+        onClose={() => setIsTierGuideOpen(false)}
+        userStats={userStats}
+        onOpenRankings={onOpenRankings}
+      />
     </header>
   );
 };

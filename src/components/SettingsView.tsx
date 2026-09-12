@@ -17,13 +17,19 @@ import {
   HelpCircle,
   Smartphone,
   Save,
+  LogIn,
+  LogOut,
+  CheckCircle2,
 } from 'lucide-react';
+import { User as FirebaseUser } from 'firebase/auth';
 import { UserStats } from '../types';
 import { sounds, SoundSettings } from '../lib/soundEffects';
 import { MascotAvatar } from './MascotAvatar';
 
 interface SettingsViewProps {
   userStats: UserStats;
+  currentUser?: FirebaseUser | null;
+  onOpenLogin?: () => void;
   onUpdateUserStats: (updated: Partial<UserStats>) => void;
   onResetStats?: () => void;
   onOpenRules: () => void;
@@ -53,6 +59,8 @@ const AVATAR_COLORS = [
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   userStats,
+  currentUser,
+  onOpenLogin,
   onUpdateUserStats,
   onResetStats,
   onOpenRules,
@@ -240,6 +248,59 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   플레이어 프로필 설정
                 </h2>
                 <p className="text-xs text-slate-400">게임 및 대기방에서 표시될 이름과 캐릭터</p>
+              </div>
+            </div>
+
+            {/* Google Account & Auto-login Status Banner */}
+            <div className="mb-5 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {currentUser?.photoURL ? (
+                    <img
+                      src={currentUser.photoURL}
+                      alt="Google User"
+                      referrerPolicy="no-referrer"
+                      className="w-8 h-8 rounded-full border border-slate-200 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-xs shrink-0">
+                      G
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-black text-slate-900 truncate">
+                        {currentUser ? 'Google 연동 계정' : '게스트 모드'}
+                      </span>
+                      {currentUser && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-black shrink-0 flex items-center gap-1">
+                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
+                          자동로그인 유지
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-medium truncate">
+                      {currentUser?.email || '로그인 시 전적 영구 보관 & 자동 로그인'}
+                    </div>
+                  </div>
+                </div>
+
+                {onOpenLogin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sounds.playPop();
+                      onOpenLogin();
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 ${
+                      currentUser
+                        ? 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                        : 'bg-black hover:bg-slate-800 text-white shadow-xs'
+                    }`}
+                  >
+                    {currentUser ? '계정 관리' : 'Google 로그인'}
+                  </button>
+                )}
               </div>
             </div>
 

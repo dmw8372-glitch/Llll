@@ -15,7 +15,15 @@ import { PublicRoomsModal } from './components/PublicRoomsModal';
 import { ShareModal } from './components/ShareModal';
 import { ResultModal } from './components/ResultModal';
 import { LegalDocumentModal, LegalDocType } from './components/LegalDocumentModal';
-import { UserStats, GameRoom, Player, ChatMessage, WordChainItem, LiveTypingPayload } from './types';
+import { LoginModal } from './components/LoginModal';
+import { RankedMatchModal } from './components/RankedMatchModal';
+import { RankScoreModal } from './components/RankScoreModal';
+import { RankPromotionModal } from './components/RankPromotionModal';
+import { RankingsModal } from './components/RankingsModal';
+import { UserStats, GameRoom, Player, ChatMessage, WordChainItem, LiveTypingPayload, TierId } from './types';
+import { calculateRankPointChange, getTierFromScore, isTierPromotion } from './lib/rankSystem';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { auth, fetchUserProfile, syncUserProfile } from './lib/firebaseClient';
 import { supabase } from './lib/supabaseClient';
 import { sounds } from './lib/soundEffects';
 import { buildApiUrl } from './lib/apiHelper';
@@ -36,6 +44,11 @@ const INITIAL_STATS: UserStats = {
   currentStreak: 0,
   maxStreak: 0,
   wordsHistory: [],
+  tier: 'BRONZE',
+  rankPoints: 0,
+  rankedGames: 0,
+  rankedWins: 0,
+  rankedLosses: 0,
 };
 
 export function App() {
@@ -80,10 +93,59 @@ export function App() {
     setUserStats(INITIAL_STATS);
     try {
       localStorage.removeItem('kkeutitgi_user_stats');
+      if (currentUser) {
+        syncUserProfile(currentUser.uid, INITIAL_STATS, currentUser).catch(console.error);
+      }
     } catch (e) {
       console.error(e);
     }
   };
+
+  // Firebase Auth & Auto-login state
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
+  const [loginPromptReason, setLoginPromptReason] = useState<string | null>(null);
+
+  // Auto-login persistence listener (Restores login session across reloads/revisits)
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setCurrentUser(firebaseUser);
+        try {
+          const cloudProfile = await fetchUserProfile(firebaseUser.uid);
+          if (cloudProfile) {
+            setUserStats((prev) => ({
+              ...prev,
+              ...cloudProfile,
+              id: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              photoURL: firebaseUser.photoURL || '',
+            }));
+          } else {
+            // First time login for this Google account: save current stats to Firestore
+            await syncUserProfile(firebaseUser.uid, userStats, firebaseUser);
+          }
+        } catch (err) {
+          console.warn('Auto-login profile sync notice:', err);
+        }
+      } else {
+        setCurrentUser(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Sync userStats to Firestore whenever it changes, if authenticated
+  useEffect(() => {
+    if (currentUser) {
+      const timer = setTimeout(() => {
+        syncUserProfile(currentUser.uid, userStats, currentUser).catch((err) => {
+          console.warn('Background sync error:', err);
+        });
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [userStats, currentUser]);
 
   // Navigation & View state
   const [isStarted, setIsStarted] = useState<boolean>(() => {
@@ -106,6 +168,22 @@ export function App() {
   const [legalDocType, setLegalDocType] = useState<LegalDocType>('TERMS');
   const [roomErrorMessage, setRoomErrorMessage] = useState<string | null>(null);
 
+  // Ranked Mode Modals State
+  const [isRankedMatchModalOpen, setIsRankedMatchModalOpen] = useState(false);
+  const [isRankingsModalOpen, setIsRankingsModalOpen] = useState(false);
+  const [isRankScoreModalOpen, setIsRankScoreModalOpen] = useState(false);
+  const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
+  const [promotedTier, setPromotedTier] = useState<TierId | null>(null);
+  const [rankScoreResult, setRankScoreResult] = useState<{
+    isWin: boolean;
+    prevPoints: number;
+    newPoints: number;
+    pointDelta: number;
+    prevTier: TierId;
+    newTier: TierId;
+    matchScore: number;
+  } | null>(null);
+
   const handleOpenLegalDoc = (type: LegalDocType) => {
     setLegalDocType(type);
     setIsLegalDocOpen(true);
@@ -124,6 +202,11 @@ export function App() {
     processedGameKeyRef.current = gameKey;
 
     const isMeWinner = finishedRoom.winner?.id === myPlayerId;
+    const isRanked = finishedRoom.mode === 'RANKED';
+
+    const myPlayer = finishedRoom.currentPlayers.find((p) => p.id === myPlayerId);
+    const myMatchScore = myPlayer?.score || 0;
+
     setUserStats((prev) => {
       const currentScore = typeof prev.score === 'number' && !isNaN(prev.score) ? prev.score : 1000;
       const newTotal = (prev.totalGames || 0) + 1;
@@ -141,9 +224,46 @@ export function App() {
         exp -= expTarget;
       }
 
-      return {
+      // Ranked RP and Tier calculations
+      let newRankPoints = prev.rankPoints || 0;
+      let newTier: TierId = prev.tier || 'BRONZE';
+      let newRankedGames = prev.rankedGames || 0;
+      let newRankedWins = prev.rankedWins || 0;
+      let newRankedLosses = prev.rankedLosses || 0;
+
+      if (isRanked) {
+        const prevRP = prev.rankPoints || 0;
+        const currentTier = prev.tier || getTierFromScore(prevRP);
+        const change = calculateRankPointChange(prevRP, isMeWinner, myMatchScore, currentTier);
+
+        newRankPoints = change.newPoints;
+        newTier = change.newTier;
+        newRankedGames += 1;
+        if (isMeWinner) {
+          newRankedWins += 1;
+        } else {
+          newRankedLosses += 1;
+        }
+
+        // Trigger Ranked result animation modal
+        setRankScoreResult({
+          isWin: isMeWinner,
+          prevPoints: prevRP,
+          newPoints: change.newPoints,
+          pointDelta: change.pointsDelta,
+          prevTier: change.previousTier,
+          newTier: change.newTier,
+          matchScore: myMatchScore,
+        });
+        setIsRankScoreModalOpen(true);
+
+        if (change.promoted) {
+          setPromotedTier(change.newTier);
+        }
+      }
+
+      const updatedUserStats: UserStats = {
         ...prev,
-        // 이겨도 점수 증가 없음(0점 변동), 진 사람만 -600점 감점 (0점 밑 마이너스 점수도 허용)
         score: isMeWinner ? currentScore : currentScore - 600,
         totalGames: newTotal,
         wins: newWins,
@@ -153,7 +273,20 @@ export function App() {
         highestRank: isMeWinner ? 1 : 2,
         exp,
         level,
+        rankPoints: newRankPoints,
+        tier: newTier,
+        rankedGames: newRankedGames,
+        rankedWins: newRankedWins,
+        rankedLosses: newRankedLosses,
       };
+
+      if (currentUser) {
+        syncUserProfile(currentUser.uid, updatedUserStats, currentUser).catch((err) => {
+          console.warn('Post-match sync error:', err);
+        });
+      }
+
+      return updatedUserStats;
     });
   };
 
@@ -1115,6 +1248,78 @@ export function App() {
     }
   };
 
+  // Start Ranked Matchmaking
+  const handleStartRankedMatch = () => {
+    if (!currentUser) {
+      sounds.playWrong();
+      setLoginPromptReason('경쟁 랭킹전에 참여하려면 로그인이 필요합니다.');
+      setIsLoginModalOpen(true);
+      return;
+    }
+    setLoginPromptReason(null);
+    sounds.playPop();
+    setIsRankedMatchModalOpen(true);
+  };
+
+  // Callback when a ranked match is found (with real human or tier-scaled bot)
+  const handleRankedMatchFound = (opponent: Player, roomId: string) => {
+    setIsRankedMatchModalOpen(false);
+    sounds.playStart();
+
+    const starter = getRandomStarter();
+    const myTier = userStats.tier || 'BRONZE';
+
+    const me: Player = {
+      id: myPlayerId,
+      nickname: userStats.nickname,
+      avatarColor: userStats.avatarColor || 'white',
+      isHost: true,
+      isReady: true,
+      isAlive: true,
+      score: 0,
+      wordsUsed: [],
+      level: userStats.level,
+      tier: myTier,
+      rankPoints: userStats.rankPoints || 0,
+    };
+
+    const opponentPlayer: Player = {
+      ...opponent,
+      tier: opponent.tier || myTier,
+    };
+
+    const rankedRoom: GameRoom = {
+      id: roomId,
+      title: `🏆 랭킹전 (${opponent.nickname})`,
+      hostId: myPlayerId,
+      hostName: userStats.nickname,
+      mode: 'RANKED',
+      targetTier: myTier,
+      status: 'PLAYING',
+      isPublic: false,
+      maxPlayers: 2,
+      totalRounds: 1,
+      roundTime: 60,
+      round: 1,
+      starterChar: starter,
+      roundHistoryWords: [starter],
+      currentTurnIndex: 0,
+      currentPlayers: [me, opponentPlayer],
+      turnDuration: 12.0,
+      usedWords: [],
+      wordChain: [],
+      lastWord: starter,
+      createdAt: Date.now(),
+      startTime: Date.now(),
+    };
+
+    processedGameKeyRef.current = null;
+    setActiveRoom(rankedRoom);
+    setCurrentTab('GAME');
+    saveRoomToServer(rankedRoom);
+    broadcastRoomEvent('SYNC_ROOM', { room: rankedRoom });
+  };
+
   // Create Room
   const handleCreateRoom = async (
     title?: string,
@@ -1819,9 +2024,12 @@ export function App() {
             setCurrentTab(tab);
           }}
           userStats={userStats}
+          currentUser={currentUser}
+          onOpenLogin={() => setIsLoginModalOpen(true)}
           onUpdateUserStats={(updated) => setUserStats((prev) => ({ ...prev, ...updated }))}
           onOpenRules={() => setIsRulesOpen(true)}
           onOpenNotices={() => setIsNoticeOpen(true)}
+          onOpenRankings={() => setIsRankingsModalOpen(true)}
         />
       )}
 
@@ -1868,6 +2076,8 @@ export function App() {
                 onViewWordDetail={handleViewWordDetail}
                 onOpenNotices={() => setIsNoticeOpen(true)}
                 onOpenRules={() => setIsRulesOpen(true)}
+                onStartRankedMatch={handleStartRankedMatch}
+                onOpenRankings={() => setIsRankingsModalOpen(true)}
               />
 
               {/* Floating Game Rooms Overlay */}
@@ -1898,6 +2108,8 @@ export function App() {
                     <div className="overflow-y-auto flex-1">
                       <SettingsView
                         userStats={userStats}
+                        currentUser={currentUser}
+                        onOpenLogin={() => setIsLoginModalOpen(true)}
                         onUpdateUserStats={(updated) => setUserStats((prev) => ({ ...prev, ...updated }))}
                         onResetStats={handleResetStats}
                         onOpenRules={() => setIsRulesOpen(true)}
@@ -2040,8 +2252,8 @@ export function App() {
         />
       )}
 
-      {/* Game Over Result Modal */}
-      {isGameOverOpen && activeRoom && (
+      {/* Game Over Result Modal (Casual Games) */}
+      {isGameOverOpen && activeRoom && activeRoom.mode !== 'RANKED' && (
         <ResultModal
           room={activeRoom}
           currentPlayerId={myPlayerId}
@@ -2073,6 +2285,101 @@ export function App() {
           }}
         />
       )}
+
+      {/* Ranked Mode Game Result & RP Gain/Loss Modal */}
+      {isRankScoreModalOpen && rankScoreResult && (
+        <RankScoreModal
+          isOpen={isRankScoreModalOpen}
+          isWin={rankScoreResult.isWin}
+          prevPoints={rankScoreResult.prevPoints}
+          newPoints={rankScoreResult.newPoints}
+          pointDelta={rankScoreResult.pointDelta}
+          prevTier={rankScoreResult.prevTier}
+          newTier={rankScoreResult.newTier}
+          matchScore={rankScoreResult.matchScore}
+          onClose={() => {
+            setIsRankScoreModalOpen(false);
+            if (promotedTier) {
+              setIsPromotionModalOpen(true);
+            } else {
+              handleLeaveRoom();
+            }
+          }}
+          onPlayAgain={() => {
+            setIsRankScoreModalOpen(false);
+            if (promotedTier) {
+              setIsPromotionModalOpen(true);
+            } else {
+              handleLeaveRoom();
+              handleStartRankedMatch();
+            }
+          }}
+        />
+      )}
+
+      {/* PUBG Tier Promotion Ceremony Modal */}
+      {isPromotionModalOpen && promotedTier && (
+        <RankPromotionModal
+          isOpen={isPromotionModalOpen}
+          newTier={promotedTier}
+          onClose={() => {
+            setIsPromotionModalOpen(false);
+            setPromotedTier(null);
+            handleLeaveRoom();
+          }}
+        />
+      )}
+
+      {/* Ranked Matchmaking Queue Modal */}
+      <RankedMatchModal
+        isOpen={isRankedMatchModalOpen}
+        userStats={userStats}
+        onClose={() => setIsRankedMatchModalOpen(false)}
+        onMatchFound={handleRankedMatchFound}
+      />
+
+      {/* Hall of Fame / Leaderboard Modal */}
+      <RankingsModal
+        isOpen={isRankingsModalOpen}
+        onClose={() => setIsRankingsModalOpen(false)}
+        userStats={userStats}
+      />
+      {/* Google Login & Account Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => {
+          setIsLoginModalOpen(false);
+          setLoginPromptReason(null);
+        }}
+        currentUser={currentUser}
+        userStats={userStats}
+        promptReason={loginPromptReason}
+        onLoginSuccess={async (user) => {
+          setCurrentUser(user);
+          setIsLoginModalOpen(false);
+          try {
+            const cloudProfile = await fetchUserProfile(user.uid);
+            if (cloudProfile) {
+              setUserStats((prev) => ({
+                ...prev,
+                ...cloudProfile,
+                id: user.uid,
+                email: user.email || '',
+                photoURL: user.photoURL || '',
+              }));
+            } else {
+              await syncUserProfile(user.uid, userStats, user);
+            }
+          } catch (err) {
+            console.error('Failed to sync profile after login:', err);
+          }
+        }}
+        onLogoutSuccess={() => {
+          setCurrentUser(null);
+          setIsLoginModalOpen(false);
+        }}
+      />
+
       {/* Room Error Modal */}
       {roomErrorMessage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">

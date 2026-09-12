@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with game stats and preferences",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "nickname": { "type": "string", "maxLength": 30 },
+        "avatarColor": { "type": "string", "maxLength": 30 },
+        "level": { "type": "number" },
+        "exp": { "type": "number" },
+        "score": { "type": "number" },
+        "totalGames": { "type": "number" },
+        "wins": { "type": "number" },
+        "winRate": { "type": "number" },
+        "highestRank": { "type": "string", "maxLength": 50 },
+        "currentStreak": { "type": "number" },
+        "maxStreak": { "type": "number" },
+        "rankPoints": { "type": "number" },
+        "tier": { "type": "string" },
+        "rankedGames": { "type": "number" },
+        "rankedWins": { "type": "number" },
+        "rankedLosses": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "nickname", "level", "score"]
+    },
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "Public ranking leaderboard entry",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "nickname": { "type": "string" },
+        "avatarColor": { "type": "string" },
+        "tier": { "type": "string" },
+        "rankPoints": { "type": "number" },
+        "rankedGames": { "type": "number" },
+        "rankedWins": { "type": "number" },
+        "winRate": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "nickname", "tier", "rankPoints"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents keyed by Firebase Auth UID"
+    },
+    "/rankings/{userId}": {
+      "schema": "LeaderboardEntry",
+      "description": "Public ranking documents keyed by Firebase Auth UID"
+    }
+  }
+}
