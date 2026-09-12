@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Medal, Award, Search, X, User, Crown, Shield, Flame, Zap } from 'lucide-react';
+import { Trophy, Medal, Award, Search, X, User, Crown, Shield, Flame, Zap, LogIn } from 'lucide-react';
+import { User as FirebaseUser } from 'firebase/auth';
 import { UserStats, RankLeaderboardEntry, TierId } from '../types';
 import { TierBadge } from './TierBadge';
 import { TIERS_CONFIG, getTierFromScore } from '../lib/rankSystem';
@@ -11,12 +12,16 @@ interface RankingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   userStats: UserStats;
+  currentUser?: FirebaseUser | null;
+  onOpenLogin?: () => void;
 }
 
 export const RankingsModal: React.FC<RankingsModalProps> = ({
   isOpen,
   onClose,
   userStats,
+  currentUser,
+  onOpenLogin,
 }) => {
   const [leaderboard, setLeaderboard] = useState<RankLeaderboardEntry[]>([]);
   const [activeTab, setActiveTab] = useState<'ALL' | 'TIER' | 'TOP'>('ALL');
@@ -36,33 +41,45 @@ export const RankingsModal: React.FC<RankingsModalProps> = ({
         const cloudRankings = await fetchTopRankings();
         const map = new Map<string, RankLeaderboardEntry>();
 
-        // Add real cloud players from Firestore
+        // Add real registered cloud players from Firestore
         cloudRankings.forEach((p) => {
-          map.set(p.userId || p.nickname, p);
+          map.set(p.userId || p.nickname, {
+            ...p,
+            isCurrentUser: !!(currentUser && (p.userId === currentUser.uid)),
+          });
         });
 
-        // Add current user if not already in list
-        const myRp = userStats.rankPoints || 0;
-        const myWinRate =
-          (userStats.rankedGames || 0) > 0
-            ? Math.round(((userStats.rankedWins || 0) / userStats.rankedGames) * 1000) / 10
-            : 0;
+        // Add current user ONLY if authenticated (logged in)
+        if (currentUser) {
+          const myId = currentUser.uid;
+          const existing = map.get(myId);
+          if (existing) {
+            existing.isCurrentUser = true;
+          } else {
+            const myRp = userStats.rankPoints || 0;
+            const myWinRate =
+              (userStats.rankedGames || 0) > 0
+                ? Math.round(((userStats.rankedWins || 0) / userStats.rankedGames) * 1000) / 10
+                : 0;
 
-        const myId = userStats.id || 'me';
-        map.set(myId, {
-          rank: 0,
-          userId: myId,
-          nickname: userStats.nickname,
-          avatarColor: userStats.avatarColor || 'emerald',
-          tier: myTierId,
-          rankPoints: myRp,
-          rankedGames: userStats.rankedGames || 0,
-          rankedWins: userStats.rankedWins || 0,
-          winRate: myWinRate,
-          isCurrentUser: true,
-        });
+            map.set(myId, {
+              rank: 0,
+              userId: myId,
+              nickname: userStats.nickname,
+              avatarColor: userStats.avatarColor || 'emerald',
+              tier: myTierId,
+              rankPoints: myRp,
+              rankedGames: userStats.rankedGames || 0,
+              rankedWins: userStats.rankedWins || 0,
+              winRate: myWinRate,
+              isCurrentUser: true,
+            });
+          }
+        }
+        // NOTE: If currentUser is null/undefined (guest/unauthenticated),
+        // we DO NOT add them to the leaderboard at all!
 
-        // Sort all real players by rankPoints descending
+        // Sort all players by rankPoints descending
         const sorted = Array.from(map.values()).sort((a, b) => b.rankPoints - a.rankPoints);
         sorted.forEach((item, idx) => {
           item.rank = idx + 1;
@@ -71,28 +88,32 @@ export const RankingsModal: React.FC<RankingsModalProps> = ({
         setLeaderboard(sorted);
       } catch (err) {
         console.error('Failed to load rankings:', err);
-        const myRp = userStats.rankPoints || 0;
-        setLeaderboard([
-          {
-            rank: 1,
-            userId: userStats.id || 'me',
-            nickname: userStats.nickname,
-            avatarColor: userStats.avatarColor || 'emerald',
-            tier: myTierId,
-            rankPoints: myRp,
-            rankedGames: userStats.rankedGames || 0,
-            rankedWins: userStats.rankedWins || 0,
-            winRate: 0,
-            isCurrentUser: true,
-          },
-        ]);
+        if (currentUser) {
+          const myRp = userStats.rankPoints || 0;
+          setLeaderboard([
+            {
+              rank: 1,
+              userId: currentUser.uid,
+              nickname: userStats.nickname,
+              avatarColor: userStats.avatarColor || 'emerald',
+              tier: myTierId,
+              rankPoints: myRp,
+              rankedGames: userStats.rankedGames || 0,
+              rankedWins: userStats.rankedWins || 0,
+              winRate: 0,
+              isCurrentUser: true,
+            },
+          ]);
+        } else {
+          setLeaderboard([]);
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     loadData();
-  }, [isOpen, userStats, myTierId]);
+  }, [isOpen, userStats, myTierId, currentUser]);
 
   if (!isOpen) return null;
 
@@ -287,28 +308,55 @@ export const RankingsModal: React.FC<RankingsModalProps> = ({
           </div>
 
           {/* Sticky My Rank Footer */}
-          {myEntry && (
-            <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-black">
-                  #{myEntry.rank}
-                </div>
-                <div className="flex items-center gap-2">
-                  <TierBadge tier={myTierId} size="xs" />
-                  <div>
-                    <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                      {userStats.nickname} <span className="text-slate-400 text-[10px]">(내 순위)</span>
-                    </div>
-                    <div className="text-[11px] text-amber-400 font-black">
-                      {myTierConfig.name} • {myEntry.rankPoints} RP
+          {currentUser ? (
+            myEntry ? (
+              <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-black">
+                    #{myEntry.rank}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <TierBadge tier={myTierId} size="xs" />
+                    <div>
+                      <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                        {userStats.nickname} <span className="text-slate-400 text-[10px]">(내 순위)</span>
+                      </div>
+                      <div className="text-[11px] text-amber-400 font-black">
+                        {myTierConfig.name} • {myEntry.rankPoints} RP
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="text-right text-[11px] font-bold text-slate-400">
-                승률 <span className="text-white">{myEntry.winRate}%</span> ({myEntry.rankedWins}승 {myEntry.rankedGames - myEntry.rankedWins}패)
+                <div className="text-right text-[11px] font-bold text-slate-400">
+                  승률 <span className="text-white">{myEntry.winRate}%</span> ({myEntry.rankedWins}승 {Math.max(0, myEntry.rankedGames - myEntry.rankedWins)}패)
+                </div>
               </div>
+            ) : (
+              <div className="p-3.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                <span>랭킹전에 참가하여 첫 승을 거두고 명예의 전당 순위를 획득하세요!</span>
+              </div>
+            )
+          ) : (
+            <div className="p-3.5 sm:p-4 bg-slate-950 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 text-xs text-slate-300">
+                <Shield className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>로그인 후 랭킹전에 참여하시면 명예의 전당에 내 티어와 랭킹이 실시간 등재됩니다.</span>
+              </div>
+              {onOpenLogin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    sounds.playPop();
+                    onClose();
+                    onOpenLogin();
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shrink-0 cursor-pointer transition-all flex items-center gap-1.5 ml-auto"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>로그인</span>
+                </button>
+              )}
             </div>
           )}
         </motion.div>

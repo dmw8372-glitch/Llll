@@ -20,6 +20,8 @@ import { RankedMatchModal } from './components/RankedMatchModal';
 import { RankScoreModal } from './components/RankScoreModal';
 import { RankPromotionModal } from './components/RankPromotionModal';
 import { RankingsModal } from './components/RankingsModal';
+import { TierGuideModal } from './components/TierGuideModal';
+import { SetNicknameModal } from './components/SetNicknameModal';
 import { UserStats, GameRoom, Player, ChatMessage, WordChainItem, LiveTypingPayload, TierId } from './types';
 import { calculateRankPointChange, getTierFromScore, isTierPromotion } from './lib/rankSystem';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
@@ -121,9 +123,13 @@ export function App() {
               email: firebaseUser.email || '',
               photoURL: firebaseUser.photoURL || '',
             }));
+            if (!cloudProfile.nicknameFixed) {
+              setIsSetNicknameModalOpen(true);
+            }
           } else {
-            // First time login for this Google account: save current stats to Firestore
+            // First time login for this Google account: save current stats to Firestore and prompt nickname
             await syncUserProfile(firebaseUser.uid, userStats, firebaseUser);
+            setIsSetNicknameModalOpen(true);
           }
         } catch (err) {
           console.warn('Auto-login profile sync notice:', err);
@@ -167,6 +173,8 @@ export function App() {
   const [isLegalDocOpen, setIsLegalDocOpen] = useState(false);
   const [legalDocType, setLegalDocType] = useState<LegalDocType>('TERMS');
   const [roomErrorMessage, setRoomErrorMessage] = useState<string | null>(null);
+  const [isTierGuideOpen, setIsTierGuideOpen] = useState(false);
+  const [isSetNicknameModalOpen, setIsSetNicknameModalOpen] = useState(false);
 
   // Ranked Mode Modals State
   const [isRankedMatchModalOpen, setIsRankedMatchModalOpen] = useState(false);
@@ -2030,6 +2038,7 @@ export function App() {
           onOpenRules={() => setIsRulesOpen(true)}
           onOpenNotices={() => setIsNoticeOpen(true)}
           onOpenRankings={() => setIsRankingsModalOpen(true)}
+          onOpenTierGuide={() => setIsTierGuideOpen(true)}
         />
       )}
 
@@ -2069,6 +2078,8 @@ export function App() {
               {/* Base Home Screen */}
               <HomeView
                 userStats={userStats}
+                currentUser={currentUser}
+                onOpenLogin={() => setIsLoginModalOpen(true)}
                 onCreateRoom={() => setCurrentTab('GAME')}
                 onOpenPublicRooms={() => setCurrentTab('GAME')}
                 onOpenQuickJoin={() => setCurrentTab('GAME')}
@@ -2078,6 +2089,7 @@ export function App() {
                 onOpenRules={() => setIsRulesOpen(true)}
                 onStartRankedMatch={handleStartRankedMatch}
                 onOpenRankings={() => setIsRankingsModalOpen(true)}
+                onOpenTierGuide={() => setIsTierGuideOpen(true)}
               />
 
               {/* Floating Game Rooms Overlay */}
@@ -2343,6 +2355,8 @@ export function App() {
         isOpen={isRankingsModalOpen}
         onClose={() => setIsRankingsModalOpen(false)}
         userStats={userStats}
+        currentUser={currentUser}
+        onOpenLogin={() => setIsLoginModalOpen(true)}
       />
       {/* Google Login & Account Modal */}
       <LoginModal
@@ -2360,23 +2374,62 @@ export function App() {
           try {
             const cloudProfile = await fetchUserProfile(user.uid);
             if (cloudProfile) {
-              setUserStats((prev) => ({
-                ...prev,
+              const updatedStats: UserStats = {
+                ...userStats,
                 ...cloudProfile,
                 id: user.uid,
                 email: user.email || '',
                 photoURL: user.photoURL || '',
-              }));
+              };
+              setUserStats(updatedStats);
+              if (!cloudProfile.nicknameFixed) {
+                setIsSetNicknameModalOpen(true);
+              }
             } else {
               await syncUserProfile(user.uid, userStats, user);
+              setIsSetNicknameModalOpen(true);
             }
           } catch (err) {
             console.error('Failed to sync profile after login:', err);
+            setIsSetNicknameModalOpen(true);
           }
         }}
         onLogoutSuccess={() => {
           setCurrentUser(null);
           setIsLoginModalOpen(false);
+        }}
+      />
+
+      {/* Tier Guide Modal (All 8 tiers & emblems guide) */}
+      <TierGuideModal
+        isOpen={isTierGuideOpen}
+        onClose={() => setIsTierGuideOpen(false)}
+        userStats={userStats}
+        currentUser={currentUser}
+        onOpenLogin={() => setIsLoginModalOpen(true)}
+        onOpenRankings={() => setIsRankingsModalOpen(true)}
+      />
+
+      {/* Mandatory Fixed Nickname Setup Modal on Login */}
+      <SetNicknameModal
+        isOpen={isSetNicknameModalOpen}
+        initialNickname={userStats.nickname}
+        userEmail={currentUser?.email || undefined}
+        onConfirm={async (confirmedNickname) => {
+          const updated: UserStats = {
+            ...userStats,
+            nickname: confirmedNickname,
+            nicknameFixed: true,
+          };
+          setUserStats(updated);
+          setIsSetNicknameModalOpen(false);
+          if (currentUser) {
+            try {
+              await syncUserProfile(currentUser.uid, updated, currentUser);
+            } catch (e) {
+              console.error('Failed to save fixed nickname:', e);
+            }
+          }
         }}
       />
 

@@ -145,6 +145,7 @@ export interface UserStats {
   rankedGames: number;
   rankedWins: number;
   rankedLosses: number;
+  nicknameFixed?: boolean;
 }
 
 export interface RankLeaderboardEntry {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, Settings, Edit2, Check, X, Shuffle, User, LogIn } from 'lucide-react';
+import { Home, Settings, Edit2, Check, X, Shuffle, User, LogIn, Shield, ShieldCheck, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { UserStats } from '../types';
@@ -18,6 +18,7 @@ interface HeaderProps {
   onOpenRules: () => void;
   onOpenLegalDoc?: (type: 'terms' | 'privacy' | 'stdict_license') => void;
   onOpenRankings?: () => void;
+  onOpenTierGuide?: () => void;
 }
 
 const RANDOM_ADJECTIVES = [
@@ -42,6 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNotices,
   onOpenRules,
   onOpenRankings,
+  onOpenTierGuide,
 }) => {
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
@@ -155,21 +157,36 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right: Quick Nickname Pill + Action Buttons (홈, 공지, 규칙, 설정) */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* PUBG Tier Badge Quick Button - Gray Theme */}
+          {/* Tier Guide Quick Button */}
           <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
             onClick={() => {
               sounds.playPop();
-              setIsTierGuideOpen(true);
+              if (onOpenTierGuide) {
+                onOpenTierGuide();
+              } else {
+                setIsTierGuideOpen(true);
+              }
             }}
             className="flex items-center gap-1.5 px-2 py-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition-all cursor-pointer shadow-2xs group"
-            title="브론즈부터 정복자까지 티어 표식 문양 도감 보기"
+            title="티어 등급 & 문양 도감 보기"
           >
-            <TierBadge tier={userStats.tier || 'BRONZE'} size="sm" showLabel={false} />
-            <span className="font-extrabold text-[11px] sm:text-xs text-slate-700 font-mono">
-              {userStats.rankPoints || 0}RP
-            </span>
+            {currentUser ? (
+              <>
+                <TierBadge tier={userStats.tier || 'BRONZE'} size="sm" showLabel={false} />
+                <span className="font-extrabold text-[11px] sm:text-xs text-slate-700 font-mono">
+                  {userStats.rankPoints || 0}RP
+                </span>
+              </>
+            ) : (
+              <>
+                <Shield className="w-4 h-4 text-amber-600" />
+                <span className="font-extrabold text-xs text-slate-700">
+                  티어 도감
+                </span>
+              </>
+            )}
           </motion.button>
 
           {/* Top-Right Nickname Badge with Quick Edit Button */}
@@ -202,10 +219,14 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-extrabold text-xs sm:text-sm text-black max-w-[85px] sm:max-w-[120px] truncate">
                 {userStats.nickname}
               </span>
-              <Edit2 className="w-3 h-3 text-slate-400 group-hover:text-black transition-colors shrink-0" />
+              {currentUser ? (
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              ) : (
+                <Edit2 className="w-3 h-3 text-slate-400 group-hover:text-black transition-colors shrink-0" />
+              )}
             </motion.button>
 
-            {/* Quick Nickname Edit Dropdown/Popover */}
+            {/* Nickname Popover: Fixed state for logged-in, editable for guest */}
             <AnimatePresence>
               {isEditNicknameOpen && (
                 <div
@@ -214,8 +235,17 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-100">
                     <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm text-black">
-                      <Edit2 className="w-3.5 h-3.5 text-black" />
-                      <span>닉네임 바로 변경</span>
+                      {currentUser ? (
+                        <>
+                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                          <span>계정 고유 닉네임</span>
+                        </>
+                      ) : (
+                        <>
+                          <Edit2 className="w-3.5 h-3.5 text-black" />
+                          <span>게스트 닉네임 설정</span>
+                        </>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -256,67 +286,96 @@ export const Header: React.FC<HeaderProps> = ({
                     </button>
                   </div>
 
-                  <form onSubmit={handleSaveNickname} className="flex flex-col gap-3">
-                    <div>
-                      <div className="relative flex items-center">
-                        <input
-                          ref={inputRef}
-                          type="text"
-                          maxLength={10}
-                          value={newNickname}
-                          onChange={(e) => {
-                            setNewNickname(e.target.value);
-                            setNicknameError(null);
-                          }}
-                          placeholder="새 닉네임 입력 (2~10자)"
-                          className="w-full pl-3 pr-9 py-2 text-xs sm:text-sm font-bold rounded-xl border border-slate-300 bg-white text-black focus:outline-none focus:ring-2 focus:ring-black"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleRandomNickname}
-                          className="absolute right-2 text-slate-400 hover:text-black p-1 cursor-pointer transition-colors"
-                          title="랜덤 닉네임 생성"
-                        >
-                          <Shuffle className="w-3.5 h-3.5" />
-                        </button>
+                  {currentUser ? (
+                    /* LOGGED-IN: Nickname is LOCKED and cannot be freely changed */
+                    <div className="flex flex-col gap-3">
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-bold text-slate-400">현재 확정된 닉네임</span>
+                          <span className="text-sm font-black text-slate-900">{userStats.nickname}</span>
+                        </div>
+                        <span className="text-[10px] font-black bg-emerald-100 text-emerald-800 px-2 py-1 rounded-lg flex items-center gap-1">
+                          <Lock className="w-3 h-3" /> 변경 제한
+                        </span>
                       </div>
 
-                      {nicknameError ? (
-                        <p className="text-[11px] text-rose-600 font-bold mt-1.5">
-                          {nicknameError}
-                        </p>
-                      ) : (
-                        <p className="text-[11px] text-slate-400 font-medium mt-1.5">
-                          한글, 영문, 숫자 2~10자 (공백/특수문자 제외)
-                        </p>
-                      )}
-                    </div>
+                      <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-[11px] text-amber-900 leading-relaxed font-medium">
+                        <strong className="font-black text-amber-950">공정성 및 전적 보존:</strong><br />
+                        로그인 계정의 닉네임은 랭킹전 승패 점수 및 명예의 전당 보존을 위해 임의로 변경할 수 없습니다.
+                      </div>
 
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={handleRandomNickname}
-                        className="flex-1 py-1.5 px-2.5 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Shuffle className="w-3 h-3" />
-                        <span>랜덤</span>
-                      </button>
                       <button
                         type="button"
                         onClick={() => setIsEditNicknameOpen(false)}
-                        className="py-1.5 px-3 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all cursor-pointer"
+                        className="w-full py-2 rounded-xl bg-slate-900 hover:bg-black text-white font-bold text-xs transition-colors cursor-pointer"
                       >
-                        취소
-                      </button>
-                      <button
-                        type="submit"
-                        className="py-1.5 px-4 rounded-xl bg-black hover:bg-slate-800 text-white text-xs font-black transition-all flex items-center justify-center gap-1 shadow-xs cursor-pointer"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>저장</span>
+                        확인
                       </button>
                     </div>
-                  </form>
+                  ) : (
+                    /* GUEST: Can change temporary guest nickname */
+                    <form onSubmit={handleSaveNickname} className="flex flex-col gap-3">
+                      <div>
+                        <div className="relative flex items-center">
+                          <input
+                            ref={inputRef}
+                            type="text"
+                            maxLength={10}
+                            value={newNickname}
+                            onChange={(e) => {
+                              setNewNickname(e.target.value);
+                              setNicknameError(null);
+                            }}
+                            placeholder="임시 닉네임 입력 (2~10자)"
+                            className="w-full pl-3 pr-9 py-2 text-xs sm:text-sm font-bold rounded-xl border border-slate-300 bg-white text-black focus:outline-none focus:ring-2 focus:ring-black"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleRandomNickname}
+                            className="absolute right-2 text-slate-400 hover:text-black p-1 cursor-pointer transition-colors"
+                            title="랜덤 닉네임 생성"
+                          >
+                            <Shuffle className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {nicknameError ? (
+                          <p className="text-[11px] text-rose-600 font-bold mt-1.5">
+                            {nicknameError}
+                          </p>
+                        ) : (
+                          <p className="text-[11px] text-slate-400 font-medium mt-1.5">
+                            게스트 임시 닉네임입니다. 로그인 시 고유 닉네임으로 확정됩니다.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleRandomNickname}
+                          className="flex-1 py-1.5 px-2.5 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Shuffle className="w-3 h-3" />
+                          <span>랜덤</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditNicknameOpen(false)}
+                          className="py-1.5 px-3 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 text-xs font-bold transition-all cursor-pointer"
+                        >
+                          취소
+                        </button>
+                        <button
+                          type="submit"
+                          className="py-1.5 px-4 rounded-xl bg-black hover:bg-slate-800 text-white text-xs font-black transition-all flex items-center justify-center gap-1 shadow-xs cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>저장</span>
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               )}
             </AnimatePresence>
@@ -383,13 +442,17 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Tier Guide Modal (Bronze to Conqueror all emblems) */}
-      <TierGuideModal
-        isOpen={isTierGuideOpen}
-        onClose={() => setIsTierGuideOpen(false)}
-        userStats={userStats}
-        onOpenRankings={onOpenRankings}
-      />
+      {/* Tier Guide Modal (Fallback if not managed by parent) */}
+      {!onOpenTierGuide && (
+        <TierGuideModal
+          isOpen={isTierGuideOpen}
+          onClose={() => setIsTierGuideOpen(false)}
+          userStats={userStats}
+          currentUser={currentUser}
+          onOpenLogin={onOpenLogin}
+          onOpenRankings={onOpenRankings}
+        />
+      )}
     </header>
   );
 };
